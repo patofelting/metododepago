@@ -13,25 +13,25 @@ const CONFIG = {
 
 // ==================== ESTADO GLOBAL ====================
 let estado = {
- carrito: JSON.parse(sessionStorage.getItem('carritoActual')) || [],
+  carrito: JSON.parse(sessionStorage.getItem('carritoActual')) || [],
   mp: null,
   map: null,
   marker: null
 };
+// --- NO USAR return fuera de función ---
+// Solo redirige si está vacío, pero NO uses return en el scope global.
 if (estado.carrito.length === 0) {
   mostrarNotificacion('No hay productos en el carrito', '#ff9800');
-  setTimeout(() => window.location.href = '/', 3000); // Asegurate que sea la URL real de la tienda
-  return;
+  setTimeout(() => window.location.href = '/', 3000); // Cambia '/' por la URL de tu catálogo/landing
+  // return;  // ¡NO va acá!
 }
+
 // ==================== INICIALIZACIÓN ====================
 document.addEventListener('DOMContentLoaded', async () => {
   try {
-    console.log('Carrito al iniciar:', estado.carrito);
-    
     if (estado.carrito.length === 0) {
       mostrarNotificacion('No hay productos en el carrito', '#ff9800');
-      // Redirigir después de 3 segundos si el carrito está vacío
-      setTimeout(() => window.location.href = '/catalogo', 3000);
+      setTimeout(() => window.location.href = '/catalogo', 3000); // Ajusta la URL si lo necesitas
       return;
     }
 
@@ -54,15 +54,15 @@ async function inicializarAplicacion() {
 function configurarEventListeners() {
   document.getElementById('btn-whatsapp')?.addEventListener('click', enviarPorWhatsApp);
   document.getElementById('search-button')?.addEventListener('click', buscarDireccionEnMapa);
-  
-  // Delegación de eventos para botones de eliminar
+
+  // Delegación de eventos para botones de eliminar producto
   document.getElementById('lista-productos')?.addEventListener('click', (e) => {
     if (e.target.closest('.btn-eliminar')) {
       const nombre = e.target.closest('.btn-eliminar').dataset.nombre;
       quitarProductoDelCarrito(nombre);
     }
   });
-  
+
   // Eventos para opciones de envío
   document.querySelectorAll('input[name="envio"]').forEach(radio => {
     radio.addEventListener('change', () => {
@@ -99,7 +99,7 @@ function mostrarResumenPedido() {
   });
 
   const { subtotal, envio, total } = calcularTotales();
-  
+
   detalleTotal.innerHTML = `
     <div class="linea-detalle">
       <span>Subtotal (${carrito.reduce((sum, item) => sum + item.cantidad, 0)} productos):</span>
@@ -151,7 +151,7 @@ function actualizarEstadoCarrito() {
 function renderizarOpcionesEnvio() {
   const opcionesEnvio = document.getElementById('opciones-envio');
   if (!opcionesEnvio) return;
-  
+
   opcionesEnvio.innerHTML = `
     <div class="opcion-envio">
       <input type="radio" name="envio" id="retiroLocal" value="retiroLocal" checked>
@@ -214,7 +214,7 @@ async function renderizarMercadoPago() {
     container.innerHTML = '<div class="cargando-pago">Cargando métodos de pago...</div>';
 
     if (!estado.mp) await cargarSdkMercadoPago();
-    
+
     const preference = await crearPreferenciaMercadoPago();
     if (!preference) {
       container.innerHTML = '<div class="error-pago">No se pudo crear el pago</div>';
@@ -222,14 +222,14 @@ async function renderizarMercadoPago() {
     }
 
     container.innerHTML = '';
-    
+
     await estado.mp.bricks().create("wallet", container, {
-      initialization: { 
+      initialization: {
         preferenceId: preference.id,
         redirectMode: 'self'
       },
       customization: {
-        texts: { 
+        texts: {
           valueProp: "smart_option",
           action: "pay"
         },
@@ -265,6 +265,7 @@ async function crearPreferenciaMercadoPago() {
       statement_descriptor: "TIENDA"
     };
 
+    // NOTA: Cambia el endpoint a tu backend real
     const response = await fetch('/crear-preferencia', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -316,37 +317,37 @@ function mostrarErrorMercadoPago(container) {
 function inicializarMapa() {
   const mapElement = document.getElementById('map');
   if (!mapElement) return;
-  
+
   estado.map = L.map(mapElement).setView(CONFIG.MAP_CENTER, CONFIG.MAP_ZOOM);
   mapElement.style.height = '400px';
-  
+
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
   }).addTo(estado.map);
-  
+
   estado.marker = L.marker(CONFIG.MAP_CENTER, { draggable: true })
     .addTo(estado.map)
     .bindPopup('Arrástrame a tu ubicación exacta')
     .openPopup();
-  
+
   setTimeout(() => estado.map.invalidateSize(), 100);
 }
 
 async function buscarDireccionEnMapa() {
   const address = document.getElementById('address')?.value.trim();
   const department = document.getElementById('department')?.value;
-  
+
   if (!address || !department) {
     mostrarNotificacion('Complete dirección y departamento', '#ff9800');
     return;
   }
-  
+
   try {
     const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}, ${encodeURIComponent(department)}, Uruguay&limit=1`);
     const data = await response.json();
-    
+
     if (!data?.length) throw new Error('Dirección no encontrada');
-    
+
     const [lat, lon] = [parseFloat(data[0].lat), parseFloat(data[0].lon)];
     actualizarMapa(lat, lon, address, department);
   } catch (error) {
@@ -360,7 +361,7 @@ function actualizarMapa(lat, lon, address, department) {
   estado.marker.setLatLng([lat, lon])
     .bindPopup(`<b>${escapeHtml(address)}</b><br>${escapeHtml(department)}`)
     .openPopup();
-  
+
   setTimeout(() => estado.map.invalidateSize(), 100);
 }
 
@@ -370,10 +371,10 @@ function enviarPorWhatsApp() {
     mostrarNotificacion('No hay productos en el carrito', '#ff9800');
     return;
   }
-  
+
   const datos = obtenerDatosPago();
   if (!validarDatosEnvio(datos)) return;
-  
+
   const mensaje = generarMensajeWhatsApp(datos);
   window.open(`https://wa.me/${CONFIG.WHATSAPP_NUMBER}?text=${mensaje}`, '_blank');
 }
@@ -381,12 +382,12 @@ function enviarPorWhatsApp() {
 function generarMensajeWhatsApp(datos) {
   const { subtotal, envio, total } = calcularTotales();
   const { metodoEnvio } = obtenerInfoEnvio();
-  
+
   let mensaje = `¡Hola! Quiero hacer un pedido:%0A%0A*Productos:*%0A`;
   estado.carrito.forEach(item => {
     mensaje += `- ${item.nombre} x ${item.cantidad}: $${(item.precio * item.cantidad).toFixed(2)}%0A`;
   });
-  
+
   mensaje += `%0A*Subtotal:* $${subtotal.toFixed(2)}%0A`;
   mensaje += `*${metodoEnvio}:* $${envio.toFixed(2)}%0A`;
   mensaje += `*Total:* $${total.toFixed(2)}%0A%0A`;
@@ -395,7 +396,7 @@ function generarMensajeWhatsApp(datos) {
   mensaje += `Departamento: ${document.getElementById('department').value}%0A`;
   mensaje += `Dirección: ${document.getElementById('address').value}%0A`;
   mensaje += `%0A¿Cómo procedemos con el pago?`;
-  
+
   return mensaje;
 }
 
@@ -406,7 +407,7 @@ function mostrarNotificacion(mensaje, color = '#4CAF50') {
   notificacion.textContent = mensaje;
   notificacion.style.backgroundColor = color;
   document.body.appendChild(notificacion);
-  
+
   setTimeout(() => {
     notificacion.classList.add('mostrar');
     setTimeout(() => {
@@ -445,7 +446,7 @@ function obtenerUrlsRetorno() {
 function obtenerInfoEnvio() {
   let metodoEnvio = "Retiro en local";
   let costoEnvio = 0;
-  
+
   if (document.getElementById('envioMontevideo')?.checked) {
     metodoEnvio = "Envío a Montevideo";
     costoEnvio = CONFIG.COSTOS_ENVIO.MONTEVIDEO;
@@ -453,16 +454,16 @@ function obtenerInfoEnvio() {
     metodoEnvio = "Envío al Interior";
     costoEnvio = CONFIG.COSTOS_ENVIO.INTERIOR;
   }
-  
+
   return { metodoEnvio, costoEnvio };
 }
 
 function validarDatosEnvio(datos = null) {
   if (document.getElementById('retiroLocal')?.checked) return true;
-  
+
   const datosPago = datos || obtenerDatosPago();
   const department = document.getElementById('department')?.value;
-  
+
   if (!datosPago.name || !datosPago.surname || !datosPago.address.street_name || !department) {
     mostrarNotificacion('Complete todos los campos obligatorios', '#ff9800');
     return false;
