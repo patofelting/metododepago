@@ -13,12 +13,16 @@ const CONFIG = {
 
 // ==================== ESTADO GLOBAL ====================
 let estado = {
-  carrito: JSON.parse(sessionStorage.getItem('carritoActual')) || [],
+ carrito: JSON.parse(sessionStorage.getItem('carritoActual')) || [],
   mp: null,
   map: null,
   marker: null
 };
-
+if (estado.carrito.length === 0) {
+  mostrarNotificacion('No hay productos en el carrito', '#ff9800');
+  setTimeout(() => window.location.href = '/', 3000); // Asegurate que sea la URL real de la tienda
+  return;
+}
 // ==================== INICIALIZACIÓN ====================
 document.addEventListener('DOMContentLoaded', async () => {
   try {
