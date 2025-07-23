@@ -79,7 +79,7 @@ function quitarProductoDelCarrito(nombre) {
   const index = carrito.findIndex(item => item.nombre === nombre);
   if (index >= 0) {
     carrito.splice(index, 1);
-    localStorage.setItem('carritoActual', JSON.stringify(carrito));
+    sessionStorage.setItem('carritoActual', JSON.stringify(carrito)); // <-- así sí
     mostrarResumenPedido();
     renderizarMercadoPago();
     mostrarNotificacion('Producto eliminado del carrito', '#ff4444');
