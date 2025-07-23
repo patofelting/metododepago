@@ -7,7 +7,7 @@ const COSTOS_ENVIO = {
 const MP_PUBLIC_KEY = 'TEST-ced49cc8-fa7c-403e-a284-52ae3712c614';
 
 // ==================== ESTADO GLOBAL ====================
-let carrito = JSON.parse(localStorage.getItem('carritoActual')) || [];
+let carrito = JSON.parse(sessionStorage.getItem('carritoActual')) || [];
 let mp, map, marker;
 
 // ==================== INICIALIZACIÓN ====================
