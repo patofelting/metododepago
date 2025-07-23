@@ -1,46 +1,84 @@
 // ==================== CONFIGURACIÓN ====================
-const COSTOS_ENVIO = {
-  RETIRO_LOCAL: 0,
-  MONTEVIDEO: 150,
-  INTERIOR: 300
+const CONFIG = {
+  COSTOS_ENVIO: {
+    RETIRO_LOCAL: 0,
+    MONTEVIDEO: 150,
+    INTERIOR: 300
+  },
+  MP_PUBLIC_KEY: 'TEST-ced49cc8-fa7c-403e-a284-52ae3712c614',
+  WHATSAPP_NUMBER: '59894955466',
+  MAP_CENTER: [-34.9011, -56.1645],
+  MAP_ZOOM: 13
 };
-const MP_PUBLIC_KEY = 'TEST-ced49cc8-fa7c-403e-a284-52ae3712c614';
 
 // ==================== ESTADO GLOBAL ====================
+let estado = {
+  carrito: JSON.parse(sessionStorage.getItem('carritoActual')) || [],
+  mp: null,
+  map: null,
+  marker: null
+};
 
-let mp, map, marker;
-
-
-document.addEventListener('DOMContentLoaded', function() {
-    let carrito = JSON.parse(sessionStorage.getItem('carritoActual')) || [];
-    console.log('Carrito recibido:', carrito); // Verifica en consola
-});
 // ==================== INICIALIZACIÓN ====================
-document.addEventListener("DOMContentLoaded", async () => {
+document.addEventListener('DOMContentLoaded', async () => {
   try {
-    await cargarSdkMercadoPago();
-    mostrarResumenPedido();
-    renderizarOpcionesEnvio();
-    initMap();
-    renderizarMercadoPago();
+    console.log('Carrito al iniciar:', estado.carrito);
     
-    // Event listeners
-    document.getElementById('btn-whatsapp')?.addEventListener('click', enviarPorWhatsApp);
-    document.getElementById('search-button')?.addEventListener('click', buscarDireccionEnMapa);
+    if (estado.carrito.length === 0) {
+      mostrarNotificacion('No hay productos en el carrito', '#ff9800');
+      // Redirigir después de 3 segundos si el carrito está vacío
+      setTimeout(() => window.location.href = '/catalogo', 3000);
+      return;
+    }
+
+    await inicializarAplicacion();
+    configurarEventListeners();
   } catch (error) {
     console.error('Error en inicialización:', error);
     mostrarNotificacion('Error al cargar la página', '#f44336');
   }
 });
 
+async function inicializarAplicacion() {
+  await cargarSdkMercadoPago();
+  mostrarResumenPedido();
+  renderizarOpcionesEnvio();
+  inicializarMapa();
+  renderizarMercadoPago();
+}
+
+function configurarEventListeners() {
+  document.getElementById('btn-whatsapp')?.addEventListener('click', enviarPorWhatsApp);
+  document.getElementById('search-button')?.addEventListener('click', buscarDireccionEnMapa);
+  
+  // Delegación de eventos para botones de eliminar
+  document.getElementById('lista-productos')?.addEventListener('click', (e) => {
+    if (e.target.closest('.btn-eliminar')) {
+      const nombre = e.target.closest('.btn-eliminar').dataset.nombre;
+      quitarProductoDelCarrito(nombre);
+    }
+  });
+  
+  // Eventos para opciones de envío
+  document.querySelectorAll('input[name="envio"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      mostrarResumenPedido();
+      renderizarMercadoPago();
+    });
+  });
+}
+
 // ==================== MANEJO DEL CARRITO ====================
 function mostrarResumenPedido() {
+  const { carrito } = estado;
   const listaProductos = document.getElementById('lista-productos');
   const detalleTotal = document.getElementById('detalle-total');
   const totalPedido = document.getElementById('total-pedido');
-  
+
+  if (!listaProductos || !detalleTotal) return;
+
   listaProductos.innerHTML = carrito.length ? '' : '<li class="no-productos">No hay productos en el carrito</li>';
-  
+
   carrito.forEach(item => {
     const li = document.createElement('li');
     li.className = 'producto-item';
@@ -49,16 +87,14 @@ function mostrarResumenPedido() {
       <span class="producto-cantidad">${item.cantidad} x</span>
       <span class="producto-precio">$ ${item.precio.toFixed(2)}</span>
       <span class="producto-subtotal">$ ${(item.precio * item.cantidad).toFixed(2)}</span>
-      <button class="btn-eliminar" onclick="quitarProductoDelCarrito('${escapeHtml(item.nombre)}')">
+      <button class="btn-eliminar" data-nombre="${escapeHtml(item.nombre)}">
         <i class="fas fa-trash"></i>
       </button>
     `;
     listaProductos.appendChild(li);
   });
-  
-  const subtotal = carrito.reduce((sum, item) => sum + (item.precio * item.cantidad), 0);
-  const envio = calcularCostoEnvio();
-  const total = subtotal + envio;
+
+  const { subtotal, envio, total } = calcularTotales();
   
   detalleTotal.innerHTML = `
     <div class="linea-detalle">
@@ -74,20 +110,36 @@ function mostrarResumenPedido() {
       <strong>$${total.toFixed(2)}</strong>
     </div>
   `;
-  
+
   if (totalPedido) {
     totalPedido.textContent = `Total: $ ${total.toFixed(2)}`;
   }
 }
 
+function calcularTotales() {
+  const subtotal = estado.carrito.reduce((sum, item) => sum + (item.precio * item.cantidad), 0);
+  const envio = calcularCostoEnvio();
+  const total = subtotal + envio;
+  return { subtotal, envio, total };
+}
+
 function quitarProductoDelCarrito(nombre) {
-  const index = carrito.findIndex(item => item.nombre === nombre);
+  const index = estado.carrito.findIndex(item => item.nombre === nombre);
   if (index >= 0) {
-    carrito.splice(index, 1);
-    sessionStorage.setItem('carritoActual', JSON.stringify(carrito)); // <-- así sí
+    estado.carrito.splice(index, 1);
+    actualizarEstadoCarrito();
+    mostrarNotificacion('Producto eliminado del carrito', '#ff4444');
+  }
+}
+
+function actualizarEstadoCarrito() {
+  try {
+    sessionStorage.setItem('carritoActual', JSON.stringify(estado.carrito));
     mostrarResumenPedido();
     renderizarMercadoPago();
-    mostrarNotificacion('Producto eliminado del carrito', '#ff4444');
+  } catch (e) {
+    console.error('Error al actualizar carrito:', e);
+    mostrarNotificacion('Error al actualizar el carrito', '#f44336');
   }
 }
 
@@ -109,7 +161,7 @@ function renderizarOpcionesEnvio() {
       <input type="radio" name="envio" id="envioMontevideo" value="envioMontevideo">
       <label for="envioMontevideo">
         <strong><i class="fas fa-truck"></i> Envío a Montevideo</strong>
-        <span>$${COSTOS_ENVIO.MONTEVIDEO}</span>
+        <span>$${CONFIG.COSTOS_ENVIO.MONTEVIDEO}</span>
         <p class="descripcion">Entrega en 24-48 horas</p>
       </label>
     </div>
@@ -117,116 +169,37 @@ function renderizarOpcionesEnvio() {
       <input type="radio" name="envio" id="envioInterior" value="envioInterior">
       <label for="envioInterior">
         <strong><i class="fas fa-truck-moving"></i> Envío al Interior</strong>
-        <span>$${COSTOS_ENVIO.INTERIOR}</span>
+        <span>$${CONFIG.COSTOS_ENVIO.INTERIOR}</span>
         <p class="descripcion">Entrega en 3-5 días hábiles</p>
       </label>
     </div>
   `;
-  
-  document.querySelectorAll('input[name="envio"]').forEach(radio => {
-    radio.addEventListener('change', () => {
-      mostrarResumenPedido();
-      renderizarMercadoPago();
-    });
-  });
 }
 
 function calcularCostoEnvio() {
-  const retiroLocal = document.getElementById('retiroLocal');
-  if (!retiroLocal) return 0;
-  
-  if (retiroLocal.checked) return COSTOS_ENVIO.RETIRO_LOCAL;
-  if (document.getElementById('envioMontevideo')?.checked) return COSTOS_ENVIO.MONTEVIDEO;
-  if (document.getElementById('envioInterior')?.checked) return COSTOS_ENVIO.INTERIOR;
+  if (document.getElementById('retiroLocal')?.checked) return CONFIG.COSTOS_ENVIO.RETIRO_LOCAL;
+  if (document.getElementById('envioMontevideo')?.checked) return CONFIG.COSTOS_ENVIO.MONTEVIDEO;
+  if (document.getElementById('envioInterior')?.checked) return CONFIG.COSTOS_ENVIO.INTERIOR;
   return 0;
 }
 
 // ==================== MERCADO PAGO ====================
 async function cargarSdkMercadoPago() {
-  return new Promise((resolve, reject) => {
-    if (typeof MercadoPago !== 'undefined') {
-      mp = new MercadoPago(MP_PUBLIC_KEY, { locale: 'es-UY' });
-      return resolve();
-    }
+  if (typeof MercadoPago !== 'undefined') {
+    estado.mp = new MercadoPago(CONFIG.MP_PUBLIC_KEY, { locale: 'es-UY' });
+    return;
+  }
 
+  return new Promise((resolve, reject) => {
     const script = document.createElement('script');
     script.src = 'https://sdk.mercadopago.com/js/v2';
     script.onload = () => {
-      mp = new MercadoPago(MP_PUBLIC_KEY, { locale: 'es-UY' });
+      estado.mp = new MercadoPago(CONFIG.MP_PUBLIC_KEY, { locale: 'es-UY' });
       resolve();
     };
-    script.onerror = () => {
-      reject(new Error('Error al cargar el SDK de Mercado Pago'));
-    };
+    script.onerror = () => reject(new Error('Error al cargar el SDK de Mercado Pago'));
     document.head.appendChild(script);
   });
-}
-
-async function crearPreferencia() {
-  if (carrito.length === 0) {
-    mostrarNotificacion('No hay productos en el carrito', '#ff9800');
-    return null;
-  }
-
-  // Validar datos de envío si no es retiro en local
-  if (!document.getElementById('retiroLocal').checked) {
-    const department = document.getElementById('department')?.value;
-    const address = document.getElementById('address')?.value;
-    if (!department || !address) {
-      mostrarNotificacion('Complete los datos de envío', '#ff9800');
-      return null;
-    }
-  }
-
-  // Construir items
-  const items = carrito.map(item => ({
-    title: item.nombre.substring(0, 50),
-    unit_price: parseFloat(item.precio),
-    quantity: parseInt(item.cantidad),
-    currency_id: "UYU"
-  }));
-
-  // Agregar costo de envío
-  const costoEnvio = calcularCostoEnvio();
-  if (costoEnvio > 0) {
-    items.push({
-      title: 'Costo de envío',
-      unit_price: costoEnvio,
-      quantity: 1,
-      currency_id: "UYU"
-    });
-  }
-
-  // Crear payload
-  const payload = {
-    items,
-    payer: {
-      ...obtenerDatosPago(),
-      email: "test@user.com" // Email requerido por MP
-    },
-    back_urls: obtenerUrlsRetorno(),
-    auto_return: "approved",
-    statement_descriptor: "PELUCHONCITOS"
-  };
-
-  try {
-    // Enviar a tu backend (debes implementar este endpoint)
-    const response = await fetch('/crear-preferencia', {
-      method: 'POST',
-      headers: { 'Content-Type': 'Backend/kage.json' },
-      body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) {
-      throw new Error('Error en el servidor');
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Error al crear preferencia:', error);
-    mostrarNotificacion('Error al procesar el pago', '#f44336');
-    return null;
-  }
 }
 
 async function renderizarMercadoPago() {
@@ -236,26 +209,25 @@ async function renderizarMercadoPago() {
   try {
     container.innerHTML = '<div class="cargando-pago">Cargando métodos de pago...</div>';
 
-    if (typeof mp === 'undefined') {
-      await cargarSdkMercadoPago();
+    if (!estado.mp) await cargarSdkMercadoPago();
+    
+    const preference = await crearPreferenciaMercadoPago();
+    if (!preference) {
+      container.innerHTML = '<div class="error-pago">No se pudo crear el pago</div>';
+      return;
     }
 
-    const preference = await crearPreferencia();
-    if (!preference) return;
-
     container.innerHTML = '';
-
-    await mp.bricks().create("wallet", container, {
+    
+    await estado.mp.bricks().create("wallet", container, {
       initialization: { 
         preferenceId: preference.id,
         redirectMode: 'self'
       },
       customization: {
         texts: { 
-          valueProp: "smart_option", 
-          action: "pay",
-          paymentPending: "Pago pendiente",
-          paymentApproved: "Pago aprobado"
+          valueProp: "smart_option",
+          action: "pay"
         },
         visual: {
           buttonBackground: "#009ee3",
@@ -267,34 +239,93 @@ async function renderizarMercadoPago() {
     });
   } catch (error) {
     console.error('Error al renderizar MercadoPago:', error);
-    container.innerHTML = `
-      <div class="error-pago">
-        <p>Error al cargar Mercado Pago</p>
-        <button class="boton-reintentar" onclick="renderizarMercadoPago()">
-          Reintentar
-        </button>
-      </div>
-    `;
+    mostrarErrorMercadoPago(container);
   }
 }
 
+async function crearPreferenciaMercadoPago() {
+  if (estado.carrito.length === 0) {
+    mostrarNotificacion('No hay productos en el carrito', '#ff9800');
+    return null;
+  }
+
+  if (!validarDatosEnvio()) return null;
+
+  try {
+    const items = crearItemsParaMercadoPago();
+    const payload = {
+      items,
+      payer: obtenerDatosPago(),
+      back_urls: obtenerUrlsRetorno(),
+      auto_return: "approved",
+      statement_descriptor: "TIENDA"
+    };
+
+    const response = await fetch('/crear-preferencia', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) throw new Error('Error en el servidor');
+    return await response.json();
+  } catch (error) {
+    console.error('Error al crear preferencia:', error);
+    mostrarNotificacion('Error al procesar el pago', '#f44336');
+    return null;
+  }
+}
+
+function crearItemsParaMercadoPago() {
+  const items = estado.carrito.map(item => ({
+    title: item.nombre.substring(0, 50),
+    unit_price: parseFloat(item.precio),
+    quantity: parseInt(item.cantidad),
+    currency_id: "UYU"
+  }));
+
+  const costoEnvio = calcularCostoEnvio();
+  if (costoEnvio > 0) {
+    items.push({
+      title: 'Costo de envío',
+      unit_price: costoEnvio,
+      quantity: 1,
+      currency_id: "UYU"
+    });
+  }
+
+  return items;
+}
+
+function mostrarErrorMercadoPago(container) {
+  container.innerHTML = `
+    <div class="error-pago">
+      <p>Error al cargar Mercado Pago</p>
+      <button class="boton-reintentar" onclick="renderizarMercadoPago()">
+        Reintentar
+      </button>
+    </div>
+  `;
+}
+
 // ==================== MAPA ====================
-function initMap() {
-  if (!document.getElementById('map')) return;
+function inicializarMapa() {
+  const mapElement = document.getElementById('map');
+  if (!mapElement) return;
   
-  map = L.map('map').setView([-34.9011, -56.1645], 13);
-  document.getElementById('map').style.height = '400px';
+  estado.map = L.map(mapElement).setView(CONFIG.MAP_CENTER, CONFIG.MAP_ZOOM);
+  mapElement.style.height = '400px';
   
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-  }).addTo(map);
+  }).addTo(estado.map);
   
-  marker = L.marker([-34.9011, -56.1645], { draggable: true })
-    .addTo(map)
+  estado.marker = L.marker(CONFIG.MAP_CENTER, { draggable: true })
+    .addTo(estado.map)
     .bindPopup('Arrástrame a tu ubicación exacta')
     .openPopup();
   
-  setTimeout(() => map.invalidateSize(), 100);
+  setTimeout(() => estado.map.invalidateSize(), 100);
 }
 
 async function buscarDireccionEnMapa() {
@@ -312,42 +343,48 @@ async function buscarDireccionEnMapa() {
     
     if (!data?.length) throw new Error('Dirección no encontrada');
     
-    const lat = parseFloat(data[0].lat);
-    const lon = parseFloat(data[0].lon);
-    
-    map.setView([lat, lon], 16);
-    marker.setLatLng([lat, lon])
-      .bindPopup(`<b>${escapeHtml(address)}</b><br>${escapeHtml(department)}`)
-      .openPopup();
-    
-    setTimeout(() => map.invalidateSize(), 100);
+    const [lat, lon] = [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+    actualizarMapa(lat, lon, address, department);
   } catch (error) {
     console.error('Error en geocodificación:', error);
     mostrarNotificacion('Dirección no encontrada. Sea más específico.', '#f44336');
   }
 }
 
+function actualizarMapa(lat, lon, address, department) {
+  estado.map.setView([lat, lon], 16);
+  estado.marker.setLatLng([lat, lon])
+    .bindPopup(`<b>${escapeHtml(address)}</b><br>${escapeHtml(department)}`)
+    .openPopup();
+  
+  setTimeout(() => estado.map.invalidateSize(), 100);
+}
+
 // ==================== WHATSAPP ====================
 function enviarPorWhatsApp() {
-  if (carrito.length === 0) {
+  if (estado.carrito.length === 0) {
     mostrarNotificacion('No hay productos en el carrito', '#ff9800');
     return;
   }
   
   const datos = obtenerDatosPago();
-  if (!datosValidados(datos)) return;
+  if (!validarDatosEnvio(datos)) return;
   
-  const { metodoEnvio, costoEnvio } = obtenerInfoEnvio();
-  const subtotal = carrito.reduce((sum, item) => sum + (item.precio * item.cantidad), 0);
-  const total = subtotal + costoEnvio;
+  const mensaje = generarMensajeWhatsApp(datos);
+  window.open(`https://wa.me/${CONFIG.WHATSAPP_NUMBER}?text=${mensaje}`, '_blank');
+}
+
+function generarMensajeWhatsApp(datos) {
+  const { subtotal, envio, total } = calcularTotales();
+  const { metodoEnvio } = obtenerInfoEnvio();
   
   let mensaje = `¡Hola! Quiero hacer un pedido:%0A%0A*Productos:*%0A`;
-  carrito.forEach(item => {
+  estado.carrito.forEach(item => {
     mensaje += `- ${item.nombre} x ${item.cantidad}: $${(item.precio * item.cantidad).toFixed(2)}%0A`;
   });
   
   mensaje += `%0A*Subtotal:* $${subtotal.toFixed(2)}%0A`;
-  mensaje += `*${metodoEnvio}:* $${costoEnvio.toFixed(2)}%0A`;
+  mensaje += `*${metodoEnvio}:* $${envio.toFixed(2)}%0A`;
   mensaje += `*Total:* $${total.toFixed(2)}%0A%0A`;
   mensaje += `*Datos de envío:*%0A`;
   mensaje += `Nombre: ${datos.name} ${datos.surname}%0A`;
@@ -355,7 +392,7 @@ function enviarPorWhatsApp() {
   mensaje += `Dirección: ${document.getElementById('address').value}%0A`;
   mensaje += `%0A¿Cómo procedemos con el pago?`;
   
-  window.open(`https://wa.me/59894955466?text=${mensaje}`, '_blank');
+  return mensaje;
 }
 
 // ==================== UTILIDADES ====================
@@ -407,21 +444,24 @@ function obtenerInfoEnvio() {
   
   if (document.getElementById('envioMontevideo')?.checked) {
     metodoEnvio = "Envío a Montevideo";
-    costoEnvio = COSTOS_ENVIO.MONTEVIDEO;
+    costoEnvio = CONFIG.COSTOS_ENVIO.MONTEVIDEO;
   } else if (document.getElementById('envioInterior')?.checked) {
     metodoEnvio = "Envío al Interior";
-    costoEnvio = COSTOS_ENVIO.INTERIOR;
+    costoEnvio = CONFIG.COSTOS_ENVIO.INTERIOR;
   }
   
   return { metodoEnvio, costoEnvio };
 }
 
-function datosValidados(datos) {
-  if (!document.getElementById('retiroLocal').checked) {
-    if (!datos.name || !datos.surname || !datos.address.street_name || !document.getElementById('department')?.value) {
-      mostrarNotificacion('Complete todos los campos obligatorios', '#ff9800');
-      return false;
-    }
+function validarDatosEnvio(datos = null) {
+  if (document.getElementById('retiroLocal')?.checked) return true;
+  
+  const datosPago = datos || obtenerDatosPago();
+  const department = document.getElementById('department')?.value;
+  
+  if (!datosPago.name || !datosPago.surname || !datosPago.address.street_name || !department) {
+    mostrarNotificacion('Complete todos los campos obligatorios', '#ff9800');
+    return false;
   }
   return true;
 }
